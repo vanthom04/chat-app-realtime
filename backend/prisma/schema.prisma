@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// --- Định nghĩa các ENUM ---
+enum UserStatus {
+  ONLINE
+  OFFLINE
+  AWAY
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  FILE
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+// --- Định nghĩa các MODEL ---
+
+model User {
+  id                String     @id @default(auto()) @map("_id") @db.ObjectId
+  displayName       String?
+  username          String     @unique
+  email             String     @unique
+  hashedPassword    String
+  avatarUrl         String?
+  bio               String?
+  status            UserStatus @default(OFFLINE)
+  passwordUpdatedAt DateTime   @default(now())
+  lastSeen          DateTime   @updatedAt
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  // --- Relations ---
+  sendFriendRequests     Friendship[] @relation("SentFriendRequests")
+  receivedFriendRequests Friendship[] @relation("ReceivedFriendRequests")
+
+  messages        Message[]
+  participatingIn Participant[]
+  readReceipts    ReadReceipt[]
+  sessions        Session[]
+}
+
+model Session {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  refreshToken String   @unique
+  expiresAt    DateTime
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Verification {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Friendship {
+  id     String           @id @default(auto()) @map("_id") @db.ObjectId
+  status FriendshipStatus @default(PENDING)
+
+  // --- Relations ---
+  // Người gửi yêu cầu
+  requesterId String @db.ObjectId
+  requester   User   @relation("SentFriendRequests", fields: [requesterId], references: [id])
+
+  // Người nhận yêu cầu
+  recipientId String @db.ObjectId
+  recipient   User   @relation("ReceivedFriendRequests", fields: [recipientId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requesterId, recipientId])
+}
+
+model Conversation {
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  name          String?
+  type          ConversationType
+  imageUrl      String?
+  lastMessageAt DateTime         @default(now())
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // --- Relations ---
+  messages     Message[]
+  participants Participant[]
+  readReceipts ReadReceipt[]
+
+  @@index([lastMessageAt])
+}
+
+model Participant {
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  // --- Relations ---
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  @@unique([userId, conversationId])
+}
+
+model Message {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  type          MessageType
+  content       String?
+  attachmentUrl String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // --- Relations ---
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  senderId String @db.ObjectId
+  sender   User   @relation(fields: [senderId], references: [id])
+
+  parentMessageId String?   @db.ObjectId
+  parentMessage   Message?  @relation("Replies", fields: [parentMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies         Message[] @relation("Replies")
+
+  @@index([conversationId, createdAt])
+}
+
+model ReadReceipt {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // --- Relations ---
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  // Thời điểm của tin nhắn cuối cùng mà user đã thấy
+  lastReadTimestamp DateTime
+
+  @@unique([userId, conversationId])
+}
